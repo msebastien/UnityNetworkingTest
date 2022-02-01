@@ -48,7 +48,7 @@ GameObject:
   - component: {fileID: -3798618120110245482}
   - component: {fileID: 4373813471243591393}
   - component: {fileID: 8567815824109529421}
-  - component: {fileID: 4730917722805278565}
+  - component: {fileID: -4108689469383198562}
   m_Layer: 8
   m_Name: PlayerArmatureNetworkAuthorative_Punching
   m_TagString: Player
@@ -234,7 +234,7 @@ MonoBehaviour:
   InLocalSpace: 0
   Interpolate: 1
   CanCommitToTransform: 0
---- !u!114 &4730917722805278565
+--- !u!114 &-4108689469383198562
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -243,7 +243,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 143828160365630514}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 89f44adfaf80dc94b999a9f04d8bce87, type: 3}
+  m_Script: {fileID: 11500000, guid: cb1e6eb3436b1da4aa90cf6d21a9398a, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
   speed: 2.5

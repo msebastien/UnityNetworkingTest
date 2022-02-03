@@ -9,17 +9,6 @@ using UnityEngine.InputSystem;
 [RequireComponent(typeof(ClientNetworkTransform))]
 public class PlayerControlAuthorativeV2 : NetworkBehaviour
 {
-    public enum PlayerState
-    {
-        Idle,
-        Walk,
-        Run,
-        ReverseWalk,
-        Punching,
-        Aim,
-        Shoot
-    }
-
     [SerializeField]
     private float speed = 2.5f;
 
@@ -127,8 +116,6 @@ public class PlayerControlAuthorativeV2 : NetworkBehaviour
         {
             UpdatePlayerStateServerRpc(PlayerState.Idle);
         }
-
-        
     }
 
     // Character animation

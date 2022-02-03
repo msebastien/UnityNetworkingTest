@@ -7,7 +7,7 @@ using UnityEngine.InputSystem;
 
 [RequireComponent(typeof(NetworkObject))]
 [RequireComponent(typeof(NetworkTransform))]
-public class PlayerControl : NetworkBehaviour
+public class PlayerControlWithRaycast : NetworkBehaviour
 {
     [SerializeField]
     private float speed = 2.5f;
@@ -27,17 +27,26 @@ public class PlayerControl : NetworkBehaviour
     [SerializeField]
     private NetworkVariable<PlayerState> networkPlayerState = new NetworkVariable<PlayerState>();
 
-    //[SerializeField]
-    //private NetworkVariable<float> forwardBackPosition = new NetworkVariable<float>(); // Z-Axis
+    [SerializeField]
+    private NetworkVariable<float> networkPlayerHealth = new NetworkVariable<float>(1000);
 
-    //[SerializeField]
-    //private NetworkVariable<float> leftRightPosition = new NetworkVariable<float>(); // X-Axis
+    // To blend punch animation and make some subtle variations
+    [SerializeField]
+    private NetworkVariable<float> networkPlayerPunchBlend = new NetworkVariable<float>();
+
+    [SerializeField]
+    private GameObject leftHand;
+
+    [SerializeField]
+    private GameObject rightHand;
+
+    // Minimum distance for intersection with Ray Cast and detection of punch
+    [SerializeField]
+    private float minPunchDistance = 0.25f; 
 
     private Vector2 inputVec = new Vector2(); // 2D Vector for Input Axis (Horizontal->Left,Right;Vertical->Up,Down)
 
     // Client caching
-    //private float oldForwardBackPos;
-    //private float oldLeftRightPos;
     private Vector3 oldInputPos;
     private Vector3 oldInputRotation;
 
@@ -59,20 +68,13 @@ public class PlayerControl : NetworkBehaviour
         {
             transform.position = new Vector3(Random.Range(defaultInitialPlanePositionRange.x, defaultInitialPlanePositionRange.y), 0,
             Random.Range(defaultInitialPlanePositionRange.x, defaultInitialPlanePositionRange.y));
+
+            PlayerCameraFollow.Instance.FollowPlayer(transform.Find("PlayerCameraRoot"));
         }
     }
 
     private void Update()
     {
-        /*if(IsServer)
-        {
-            UpdateServer(); // Apply new position to the player's transform server-side;
-        }
-
-        if(IsClient && IsOwner)
-        {
-            UpdateClient(); // Apply new position to the player's transform client-side;
-        }*/
         if(IsClient && IsOwner)
         {
             ClientInput();
@@ -80,6 +82,39 @@ public class PlayerControl : NetworkBehaviour
 
         ClientMoveAndRotate();
         ClientVisuals();
+    }
+
+    private void FixedUpdate()
+    {
+        if(IsClient && IsOwner) // Local Player
+        {
+            CheckPunch(leftHand.transform, Vector3.up);
+            CheckPunch(rightHand.transform, Vector3.down);
+        }
+    }
+
+    private void CheckPunch(Transform hand, Vector3 aimDirection)
+    {
+        RaycastHit hit;
+        int layerMask = LayerMask.GetMask("Player");
+
+        if (Physics.Raycast(hand.position, hand.TransformDirection(aimDirection), out hit, minPunchDistance, layerMask))
+        {
+            Debug.Log("Did Hit");
+            Debug.DrawRay(hand.position, hand.TransformDirection(aimDirection) * minPunchDistance, Color.green);
+
+            var playerHit = hit.transform.GetComponent<NetworkObject>();
+            if(playerHit != null)
+            {
+                Logger.Instance.LogInfo($"Player {playerHit.OwnerClientId} has been hit. {networkPlayerHealth.Value} HP left.");
+                UpdateHealthServerRpc(1, playerHit.OwnerClientId);
+            }
+        }
+        else
+        {
+            Debug.Log("Did not Hit");
+            Debug.DrawRay(hand.position, hand.TransformDirection(aimDirection) * minPunchDistance, Color.red);
+        }
     }
 
     // Event called by the Input System
@@ -145,88 +180,24 @@ public class PlayerControl : NetworkBehaviour
     {
         if(networkPlayerState.Value == PlayerState.Walk)
         {
-            animator.SetFloat("Walk", 1);
+            animator.SetTrigger("Walk");
         }
         else if(networkPlayerState.Value == PlayerState.ReverseWalk)
         {
-            animator.SetFloat("Walk", -1);
+            animator.SetTrigger("ReverseWalk");
         }
         else
         {
-            animator.SetFloat("Walk", 0);
+            animator.SetTrigger("Idle");
         }
     }
 
-    /*private void UpdateServer()
+    [ServerRpc]
+    public void UpdateHealthServerRpc(float health, ulong clientId)
     {
-        transform.position = new Vector3(transform.position.x + leftRightPosition.Value, transform.position.y, 
-            transform.position.z + forwardBackPosition.Value);
-    }*/
-
-    /*private void UpdateClient()
-    {
-        float forwardBackward = 0;
-        float leftRight = 0;
-
-        var keyboard = Keyboard.current;
-
-        if(keyboard.wKey.isPressed || keyboard.upArrowKey.isPressed)
-        {
-            forwardBackward += speed;
-        }
-
-        if (keyboard.sKey.isPressed || keyboard.downArrowKey.isPressed)
-        {
-            forwardBackward -= speed;
-        }
-
-        if (keyboard.aKey.isPressed || keyboard.leftArrowKey.isPressed)
-        {
-            leftRight -= speed;
-        }
-
-        if (keyboard.dKey.isPressed || keyboard.rightArrowKey.isPressed)
-        {
-            leftRight += speed;
-        }
-
-        /*if(Input.GetKey(KeyCode.W) || Input.GetKey(KeyCode.UpArrow))
-        {
-            forwardBackward += walkSpeed;
-        }
-
-        if (Input.GetKey(KeyCode.S) || Input.GetKey(KeyCode.DownArrow))
-        {
-            forwardBackward -= walkSpeed;
-        }
-
-        if (Input.GetKey(KeyCode.A) || Input.GetKey(KeyCode.LeftArrow))
-        {
-            leftRight -= walkSpeed;
-        }
-
-        if (Input.GetKey(KeyCode.D) || Input.GetKey(KeyCode.RightArrow))
-        {
-            leftRight += walkSpeed;
-        }*/
-
-        /*if (oldForwardBackPos != forwardBackward || oldLeftRightPos != leftRight)
-        {
-            oldForwardBackPos = forwardBackward;
-            oldLeftRightPos = leftRight;
-
-            UpdateClientPositionServerRpc(forwardBackward, leftRight);
-        }
-
-    }*/
-
-    /*[ServerRpc]
-    public void UpdateClientPositionServerRpc(float forwardBackPos, float leftRightPos)
-    {
-        //forwardBackPosition.Value = forwardBackPos;
-        //leftRightPosition.Value = leftRightPos;
-        
-    }*/
+        NetworkObject player = NetworkManager.Singleton.ConnectedClients[clientId].PlayerObject;
+        player.gameObject.GetComponent<PlayerControlWithRaycast>().networkPlayerHealth.Value -= 1;
+    }
 
     [ServerRpc]
     public void UpdateClientPositionAndRotationServerRpc(Vector3 newPositionDirection, Vector3 newRotationDirection)

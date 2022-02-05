@@ -84,7 +84,7 @@ Animator:
   m_GameObject: {fileID: 143828160365630514}
   m_Enabled: 1
   m_Avatar: {fileID: 9000000, guid: 36078ab0369161e49a29d349ae3e0739, type: 3}
-  m_Controller: {fileID: 9100000, guid: 74ad2539f4c74e349b76c4c07782766f, type: 2}
+  m_Controller: {fileID: 9100000, guid: b8c3e189a1da58a43ba8b63ca080e8d0, type: 2}
   m_CullingMode: 1
   m_UpdateMode: 0
   m_ApplyRootMotion: 0
@@ -241,6 +241,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   speed: 2.5
+  runSpeedOffset: 2.5
   rotationSpeed: 1.2
   defaultInitialPlanePositionRange: {x: -4, y: 4}
   networkPositionDirection:

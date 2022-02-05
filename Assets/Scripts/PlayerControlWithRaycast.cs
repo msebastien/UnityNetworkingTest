@@ -13,6 +13,9 @@ public class PlayerControlWithRaycast : NetworkBehaviour
     private float speed = 2.5f;
 
     [SerializeField]
+    private float runSpeedOffset = 0.5f; // Added speed when running
+
+    [SerializeField]
     private float rotationSpeed = 1.2f;
 
     [SerializeField]
@@ -45,10 +48,13 @@ public class PlayerControlWithRaycast : NetworkBehaviour
     private float minPunchDistance = 0.25f; 
 
     private Vector2 inputVec = new Vector2(); // 2D Vector for Input Axis (Horizontal->Left,Right;Vertical->Up,Down)
+    private bool isRunning = false; // Player is sprinting? (Left Shift)
+    private bool isPunching = false; // Player is punching? (E key)
 
     // Client caching
     private Vector3 oldInputPos;
     private Vector3 oldInputRotation;
+    private PlayerState oldPlayerState;
 
     private CharacterController characterController;
     private Animator animator;
@@ -88,8 +94,12 @@ public class PlayerControlWithRaycast : NetworkBehaviour
     {
         if(IsClient && IsOwner) // Local Player
         {
-            CheckPunch(leftHand.transform, Vector3.up);
-            CheckPunch(rightHand.transform, Vector3.down);
+            if(networkPlayerState.Value == PlayerState.Punching && isPunching)
+            {
+                CheckPunch(leftHand.transform, Vector3.up);
+                CheckPunch(rightHand.transform, Vector3.down);
+            }
+            
         }
     }
 
@@ -106,8 +116,12 @@ public class PlayerControlWithRaycast : NetworkBehaviour
             var playerHit = hit.transform.GetComponent<NetworkObject>();
             if(playerHit != null)
             {
-                Logger.Instance.LogInfo($"Player {playerHit.OwnerClientId} has been hit. {networkPlayerHealth.Value} HP left.");
+                // Deal damage to player being punched
                 UpdateHealthServerRpc(1, playerHit.OwnerClientId);
+                
+                // Notify the client that is currently punching the other player
+                float playerHitHealth = playerHit.gameObject.GetComponent<PlayerControlWithRaycast>().networkPlayerHealth.Value;
+                Logger.Instance.LogInfo($"Player {playerHit.OwnerClientId} has been punched. {playerHitHealth} HP left.");
             }
         }
         else
@@ -117,10 +131,20 @@ public class PlayerControlWithRaycast : NetworkBehaviour
         }
     }
 
-    // Event called by the Input System
+    // Events called by the Input System
     public void OnMove(InputValue input)
     {
         inputVec = input.Get<Vector2>();
+    }
+
+    public void OnSprint(InputValue input)
+    {
+        isRunning = input.isPressed;
+    }
+
+    public void OnPunch(InputValue input)
+    {
+        isPunching = input.isPressed;
     }
 
     // Client-side input
@@ -136,29 +160,34 @@ public class PlayerControlWithRaycast : NetworkBehaviour
         // Direction (where the forward unit vector points) multiplied by input vector gives new position
         Vector3 inputPosition = direction * forwardInput; 
 
-        if(oldInputPos != inputPosition || oldInputRotation != inputRotation)
+        // Change fighting states
+        if(isPunching && forwardInput == 0)
+        {
+            UpdatePlayerStateServerRpc(PlayerState.Punching);
+            return; // do not move player
+        }
+
+        // Change motion states
+        if (forwardInput == 0)
+            UpdatePlayerStateServerRpc(PlayerState.Idle);
+        else if(!isRunning && forwardInput > 0 && forwardInput <= 1)
+            UpdatePlayerStateServerRpc(PlayerState.Walk);
+        else if(isRunning && forwardInput > 0 && forwardInput <=1)
+        {
+            inputPosition = direction * runSpeedOffset;
+            UpdatePlayerStateServerRpc(PlayerState.Run);
+        }
+        else if(forwardInput < 0)
+            UpdatePlayerStateServerRpc(PlayerState.ReverseWalk);
+
+
+        if (oldInputPos != inputPosition || oldInputRotation != inputRotation)
         {
             oldInputPos = inputPosition;
             oldInputRotation = inputRotation;
 
             // Send new pos to server
             UpdateClientPositionAndRotationServerRpc(inputPosition * speed, inputRotation * rotationSpeed);
-        }
-
-        // Player state changes based on input
-        // Send new player state to server
-
-        if (forwardInput > 0)
-        {
-            UpdatePlayerStateServerRpc(PlayerState.Walk);
-        }
-        else if(forwardInput < 0)
-        {
-            UpdatePlayerStateServerRpc(PlayerState.ReverseWalk);
-        }
-        else
-        {
-            UpdatePlayerStateServerRpc(PlayerState.Idle);
         }
     }
 
@@ -178,25 +207,47 @@ public class PlayerControlWithRaycast : NetworkBehaviour
     // Character animation
     private void ClientVisuals()
     {
-        if(networkPlayerState.Value == PlayerState.Walk)
+        if(oldPlayerState != networkPlayerState.Value)
         {
-            animator.SetTrigger("Walk");
-        }
-        else if(networkPlayerState.Value == PlayerState.ReverseWalk)
-        {
-            animator.SetTrigger("ReverseWalk");
-        }
-        else
-        {
-            animator.SetTrigger("Idle");
+            oldPlayerState = networkPlayerState.Value;
+            animator.SetTrigger($"{networkPlayerState.Value}");
+            if(networkPlayerState.Value == PlayerState.Punching)
+            {
+                animator.SetFloat("PunchBlend", networkPlayerPunchBlend.Value);
+            }
         }
     }
 
     [ServerRpc]
-    public void UpdateHealthServerRpc(float health, ulong clientId)
+    public void UpdateHealthServerRpc(int damage, ulong clientId)
     {
-        NetworkObject player = NetworkManager.Singleton.ConnectedClients[clientId].PlayerObject;
-        player.gameObject.GetComponent<PlayerControlWithRaycast>().networkPlayerHealth.Value -= 1;
+        var clientWithDamage = NetworkManager.Singleton.ConnectedClients[clientId]
+            .PlayerObject.gameObject.GetComponent<PlayerControlWithRaycast>();
+
+        if(clientWithDamage != null && clientWithDamage.networkPlayerHealth.Value > 0)
+        {
+            clientWithDamage.networkPlayerHealth.Value -= damage;
+        }
+            
+
+        // Execute method on client getting punched
+        NotifyHealthChangedClientRpc(damage, new ClientRpcParams
+        {
+            Send = new ClientRpcSendParams
+            {
+                TargetClientIds = new ulong[] {clientId}
+            }
+        });
+    }
+
+    // Notify client being punched and hurt
+    [ClientRpc]
+    public void NotifyHealthChangedClientRpc(int damage, ClientRpcParams clientRpcParams = default)
+    {
+        if (IsOwner) return;
+
+        // Client-side logic
+        Logger.Instance.LogInfo($"You got punched by Player {OwnerClientId} (-{damage} HP)");
     }
 
     [ServerRpc]
@@ -210,5 +261,9 @@ public class PlayerControlWithRaycast : NetworkBehaviour
     public void UpdatePlayerStateServerRpc(PlayerState newPlayerState)
     {
         networkPlayerState.Value = newPlayerState;
+        if(networkPlayerState.Value == PlayerState.Punching)
+        {
+            networkPlayerPunchBlend.Value = Random.Range(0.0f, 1.0f);        
+        }
     }
 }
